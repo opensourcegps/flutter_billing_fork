@@ -93,9 +93,11 @@ class Billing {
   final Set<String> _purchasedProducts = new Set();
   final Set<Object> _purchasedProductsFull = new Set();
   final Set<String> _subscribedProducts = new Set();
+  final Set<Object> _subscribedProductsFull = new Set();
 
   bool _purchasesFetched = false;
   bool _purchasesFetchedFull = false;
+  bool _subscribtionsFetchedFull = false;
 
 
   /// Products details of supplied product identifiers.
@@ -219,6 +221,24 @@ class Billing {
     });
   }
 
+
+
+  Future<Set<Object>> getSubscriptionsFull() {
+    if (_subscribtionsFetchedFull) {
+      return new Future.value(new Set.from(_subscribedProductsFull));
+    }
+    return synchronized(this, () async {
+      try {
+        final List purchases = await _channel.invokeMethod('fetchSubscriptionsFull');
+        _subscribedProductsFull.addAll(purchases.cast());
+        //  _subscribtionsFetchedFull = true;  //always refresh purchases list
+        return _subscribedProductsFull;
+      } catch (e) {
+        if (_onError != null) _onError(e);
+        return new Set.identity();
+      }
+    });
+  }
 
 
   /// Grab in app receipt for iOS.

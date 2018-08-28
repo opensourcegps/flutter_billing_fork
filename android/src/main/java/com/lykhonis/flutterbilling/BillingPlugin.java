@@ -93,6 +93,8 @@ public final class BillingPlugin implements MethodCallHandler {
             fetchPurchases(result);
         } else if ("fetchPurchasesFull".equals(methodCall.method)) {
             fetchPurchasesFull(result);
+        } else if ("fetchSubscriptionsFull".equals(methodCall.method)) {
+            fetchSubscriptionsFull(result);
         }  else if ("purchase".equals(methodCall.method)) {
             purchase(methodCall.<String>argument("identifier"), result);
         } else if ("fetchProducts".equals(methodCall.method)) {
@@ -369,6 +371,27 @@ public final class BillingPlugin implements MethodCallHandler {
                     result.success(getIdentifiersFull(purchasesResult.getPurchasesList()));
                 } else {
                     result.error("ERROR", "Failed to query purchases with error " + responseCode, null);
+                }
+            }
+
+            @Override
+            public void failed() {
+                result.error("UNAVAILABLE", "Billing service is unavailable!", null);
+            }
+        });
+    }
+
+    private void fetchSubscriptionsFull(final Result result) {
+        executeServiceRequest(new Request() {
+            @Override
+            public void execute() {
+                final Purchase.PurchasesResult purchasesResult = billingClient.queryPurchases(SkuType.SUBS);
+                final int responseCode = purchasesResult.getResponseCode();
+
+                if (responseCode == BillingResponse.OK) {
+                    result.success(getIdentifiersFull(purchasesResult.getPurchasesList()));
+                } else {
+                    result.error("ERROR", "Failed to query subscriptions with error " + responseCode, null);
                 }
             }
 
