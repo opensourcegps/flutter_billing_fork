@@ -322,7 +322,26 @@ public final class BillingPlugin implements MethodCallHandler {
                             @Override
                             public void onSkuDetailsResponse(int responseCode, List<SkuDetails> skuDetailsList) {
                                 if (responseCode == BillingResponse.OK) {
-                                    List<Map<String, Object>> products = getProductsFromSkuDetails(skuDetailsList);
+
+                                    //this does not work
+                                    //List<Map<String, Object>> products = getProductsFromSkuDetails(skuDetailsList);
+
+                                    final List<Map<String, Object>> products = new ArrayList<>();
+
+                                    for (SkuDetails details : skuDetailsList) {
+                                        final Map<String, Object> product = new HashMap<>();
+                                        product.put("identifier", details.getSku());
+                                        product.put("price", details.getPrice());
+                                        product.put("title", details.getTitle());
+                                        product.put("description", details.getDescription());
+                                        product.put("currency", details.getPriceCurrencyCode());
+                                        product.put("amount", details.getPriceAmountMicros() / 10_000L);
+                                        //  product.put("type", details.getType());  //breaks stuff
+                                        products.add(product);
+                                    }
+
+
+
 
                                     result.success(products);
                                 } else {
