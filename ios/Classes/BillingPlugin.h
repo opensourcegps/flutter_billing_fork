@@ -3,8 +3,8 @@
 
 @interface BillingPlugin : NSObject<FlutterPlugin, SKPaymentTransactionObserver, SKProductsRequestDelegate> {
 
-    NSArray *validProducts;
-    SKProductsRequest *productsRequest;
+    //NSArray *validProducts;
+    //SKProductsRequest *productsRequest;
 
 }
 @end
