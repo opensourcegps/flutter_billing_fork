@@ -1,9 +1,16 @@
 #import "BillingPlugin.h"
 
-@interface BillingPlugin()
+@interface BillingPlugin() {
+    BOOL autoReceiptConform;
+    SKPaymentTransaction *currentTransaction;
+    FlutterResult flutterResult;
+}
 
 @property (atomic, retain) NSMutableArray<FlutterResult>* fetchPurchases;
+@property (atomic, retain) NSMutableArray<FlutterResult>* fetchPurchasesFull;
 @property (atomic, retain) NSMutableDictionary<NSValue*, FlutterResult>* fetchProducts;
+@property (atomic, retain) NSMutableDictionary<NSValue*, FlutterResult>* fetchSubscriptions;
+@property (atomic, retain) NSMutableDictionary<NSValue*, FlutterResult>* fetchSubscriptionsFull;
 @property (atomic, retain) NSMutableDictionary<SKPayment*, FlutterResult>* requestedPayments;
 @property (atomic, retain) NSArray<SKProduct*>* products;
 @property (atomic, retain) NSMutableSet<NSString*>* purchases;
@@ -14,7 +21,10 @@
 @implementation BillingPlugin
 
 @synthesize fetchPurchases;
+@synthesize fetchPurchasesFull;
 @synthesize fetchProducts;
+@synthesize fetchSubscriptions;
+@synthesize fetchSubscriptionsFull;
 @synthesize requestedPayments;
 @synthesize products;
 @synthesize purchases;
@@ -34,6 +44,7 @@
     
     self.fetchPurchases = [[NSMutableArray alloc] init];
     self.fetchProducts = [[NSMutableDictionary alloc] init];
+    self.fetchSubscriptions = [[NSMutableDictionary alloc] init];
     self.requestedPayments = [[NSMutableDictionary alloc] init];
     self.products = [[NSArray alloc] init];
     self.purchases = [[NSMutableSet alloc] init];
@@ -49,8 +60,8 @@
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
     if ([@"fetchPurchases" isEqualToString:call.method]) {
         [self fetchPurchases:result];
-    } else if ([@"getReceipt" isEqualToString:call.method]) {
-        [self getReceipt:result];
+    } else if ([@"fetchPurchasesFull" isEqualToString:call.method]) {
+        [self fetchPurchasesFull:result];
     } else if ([@"purchase" isEqualToString:call.method]) {
         NSString* identifier = (NSString*)call.arguments[@"identifier"];
         if (identifier != nil) {
@@ -65,24 +76,38 @@
         } else {
             result([FlutterError errorWithCode:@"ERROR" message:@"Invalid or missing arguments!" details:nil]);
         }
+    } else if ([@"fetchSubscriptions" isEqualToString:call.method]) {
+        NSArray<NSString*>* identifiers = (NSArray<NSString*>*)call.arguments[@"identifiers"];
+        if (identifiers != nil) {
+            [self fetchProducts:identifiers result:result];
+        } else {
+            result([FlutterError errorWithCode:@"ERROR" message:@"Invalid or missing arguments!" details:nil]);
+        }
+    } else if ([@"fetchSubscriptionsFull" isEqualToString:call.method]) {
+        NSArray<NSString*>* identifiers = (NSArray<NSString*>*)call.arguments[@"identifiers"];
+        if (identifiers != nil) {
+            [self fetchProducts:identifiers result:result];
+        } else {
+            result([FlutterError errorWithCode:@"ERROR" message:@"Invalid or missing arguments!" details:nil]);
+        }
+    } else if ([@"subscribe" isEqualToString:call.method]) {
+        NSString* identifier = (NSString*)call.arguments[@"identifier"];
+        if (identifier != nil) {
+            [self subscribe:identifier result: result];
+        } else {
+            result([FlutterError errorWithCode:@"ERROR" message:@"Invalid or missing arguments!" details:nil]);
+        }
     } else {
         result(FlutterMethodNotImplemented);
     }
 }
 
-
-- (void)getReceipt:(FlutterResult)result {
-
-    NSData *dataReceipt = [NSData dataWithContentsOfURL:[[NSBundle mainBundle] appStoreReceiptURL]];
-
-    if (!dataReceipt)
-        result([FlutterError errorWithCode:@"ERROR" message:@"No local receipt" details:nil]);
-    else
-        result([dataReceipt base64EncodedStringWithOptions:0]);
+- (void)fetchPurchases:(FlutterResult)result {
+    [fetchPurchases addObject:result];
+    [[SKPaymentQueue defaultQueue] restoreCompletedTransactions];
 }
 
-
-- (void)fetchPurchases:(FlutterResult)result {
+- (void)fetchPurchasesFull:(FlutterResult)result {
     [fetchPurchases addObject:result];
     [[SKPaymentQueue defaultQueue] restoreCompletedTransactions];
 }
@@ -177,12 +202,48 @@
     }
 }
 
+- (void)subscribe:(NSString*) identifier result:(FlutterResult)result {
+    SKProduct* product;
+    for (SKProduct* p in products) {
+        if([p.productIdentifier isEqualToString:identifier]) {
+            product = p;
+            break;
+        }
+    }
+
+    if (product != nil) {
+        SKPayment* payment = [SKPayment paymentWithProduct:product];
+        [requestedPayments setObject:result forKey:payment];
+        [[SKPaymentQueue defaultQueue] addPayment:payment];
+    } else {
+        result([FlutterError errorWithCode:@"ERROR" message:@"Failed to subscribe!" details:nil]);
+    }
+}
+
 - (void)fetchProducts:(NSArray<NSString*>*)identifiers result:(FlutterResult)result {
     SKProductsRequest* request = [[SKProductsRequest alloc] initWithProductIdentifiers:[NSSet setWithArray:identifiers]];
     [request setDelegate:self];
     
     [fetchProducts setObject:result forKey:[NSValue valueWithNonretainedObject:request]];
     
+    [request start];
+}
+
+- (void)fetchSubscriptions:(NSArray<NSString*>*) identifiers result:(FlutterResult)result {
+    SKProductsRequest* request = [[SKProductsRequest alloc] initWithProductIdentifiers: [NSSet setWithArray:identifiers]];
+    [request setDelegate:self];
+
+    [fetchProducts setObject:result forKey:[NSValue valueWithNonretainedObject:request]];
+
+    [request start];
+}
+
+- (void)fetchSubscriptionsFull:(NSArray<NSString*>*) identifiers result:(FlutterResult)result {
+    SKProductsRequest* request = [[SKProductsRequest alloc] initWithProductIdentifiers: [NSSet setWithArray:identifiers]];
+    [request setDelegate:self];
+
+    [fetchProducts setObject:result forKey:[NSValue valueWithNonretainedObject:request]];
+
     [request start];
 }
 
@@ -225,6 +286,7 @@
         [values setObject:product.localizedDescription forKey:@"description"];
         [values setObject:product.priceLocale.currencyCode forKey:@"currency"];
         [values setObject:[NSNumber numberWithInt:(int) ceil(product.price.doubleValue * 100)] forKey:@"amount"];
+        [values setObject:product.subscriptionPeriod ? @"SUBS" : @"INAPP" forKey:@"type"];
 
         [allValues addObject:values];
     }];
