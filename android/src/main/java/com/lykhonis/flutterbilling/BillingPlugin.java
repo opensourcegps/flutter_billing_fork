@@ -165,6 +165,11 @@ public final class BillingPlugin implements MethodCallHandler {
                                         product.put("amount", details.getPriceAmountMicros() / 10_000L);
                                       //  product.put("type", details.getType());  //breaks stuff
                                         products.add(product);
+                                        try {
+                                            System.out.println(details.getType());
+                                        } catch (Exception ex) {
+                                            System.out.println("Product type error.\n" + ex.toString());
+                                        }
                                     }
 
                                     result.success(products);
