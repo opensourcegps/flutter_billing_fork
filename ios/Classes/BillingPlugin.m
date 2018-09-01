@@ -148,10 +148,10 @@
     NSMutableArray<FlutterResult>* results = [[NSMutableArray alloc] init];
     
     [transactions enumerateObjectsUsingBlock:^(SKPaymentTransaction* transaction, NSUInteger idx, BOOL* stop) {
-        [self->purchases addObject:transaction.payment.productIdentifier];
-        FlutterResult result = [self->requestedPayments objectForKey:transaction.payment];
+        [purchases addObject:transaction.payment.productIdentifier];
+        FlutterResult result = [requestedPayments objectForKey:transaction.payment];
         if (result != nil) {
-            [self->requestedPayments removeObjectForKey:transaction.payment];
+            [requestedPayments removeObjectForKey:transaction.payment];
             [results addObject:result];
         }
         [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
@@ -167,7 +167,7 @@
     [transactions enumerateObjectsUsingBlock:^(SKPaymentTransaction* transaction, NSUInteger idx, BOOL* stop) {
         SKPaymentTransaction* original = transaction.originalTransaction;
         if (original != nil) {
-            [self->purchases addObject:original.payment.productIdentifier];
+            [purchases addObject:original.payment.productIdentifier];
         }
         [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
     }];
@@ -175,9 +175,9 @@
 
 - (void)failed:(NSArray<SKPaymentTransaction*>*)transactions {
     [transactions enumerateObjectsUsingBlock:^(SKPaymentTransaction* transaction, NSUInteger idx, BOOL* stop) {
-        FlutterResult result = [self->requestedPayments objectForKey:transaction.payment];
+        FlutterResult result = [requestedPayments objectForKey:transaction.payment];
         if (result != nil) {
-            [self->requestedPayments removeObjectForKey:transaction.payment];
+            [requestedPayments removeObjectForKey:transaction.payment];
             result([FlutterError errorWithCode:@"ERROR" message:@"Failed to make a payment!" details:nil]);
         }
         [[SKPaymentQueue defaultQueue] finishTransaction:transaction];
@@ -284,17 +284,9 @@
         [values setObject:[currencyFormatter stringFromNumber:product.price] forKey:@"price"];
         [values setObject:product.localizedTitle forKey:@"title"];
         [values setObject:product.localizedDescription forKey:@"description"];
-        if (@available(iOS 10.0, *)) {
-            [values setObject:product.priceLocale.currencyCode forKey:@"currency"];
-        } else {
-            [values setObject:@"" forKey:@"currency"];//TODO:  Look into what is a better solution than this
-        }
+        [values setObject:product.priceLocale.currencyCode forKey:@"currency"];
         [values setObject:[NSNumber numberWithInt:(int) ceil(product.price.doubleValue * 100)] forKey:@"amount"];
-        if (@available(iOS 11.2, *)) {
-            [values setObject:product.subscriptionPeriod ? @"SUBS" : @"INAPP" forKey:@"type"];
-        } else {
-            [values setObject:@"INAPP" forKey:@"type"];
-        }
+        [values setObject:product.subscriptionPeriod ? @"SUBS" : @"INAPP" forKey:@"type"];
 
         [allValues addObject:values];
     }];
