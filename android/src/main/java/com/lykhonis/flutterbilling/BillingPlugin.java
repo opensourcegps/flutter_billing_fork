@@ -93,6 +93,8 @@ public final class BillingPlugin implements MethodCallHandler {
             fetchPurchases(result);
         } else if ("fetchPurchasesFull".equals(methodCall.method)) {
             fetchPurchasesFull(result);
+        } else if ("fetchPurchasedSubscriptions".equals(methodCall.method)) {
+            fetchPurchasedSubscriptions(result);
         } else if ("fetchSubscriptionsFull".equals(methodCall.method)) {
             fetchSubscriptionsFull(result);
         }  else if ("purchase".equals(methodCall.method)) {
@@ -101,6 +103,9 @@ public final class BillingPlugin implements MethodCallHandler {
             fetchProducts(methodCall.<List<String>>argument("identifiers"), result);
         } else if ("fetchSubscriptions".equals(methodCall.method)) {
             fetchSubscriptions(methodCall.<List<String>>argument("identifiers"), result);
+
+
+
         } else if ("subscribe".equals(methodCall.method)) {
             subscribe(methodCall.<String>argument("identifier"), result);
         } else {
@@ -286,6 +291,32 @@ public final class BillingPlugin implements MethodCallHandler {
             }
         });
     }
+
+
+
+    private void fetchPurchasedSubscriptions(final Result result) {
+        executeServiceRequest(new Request() {
+            @Override
+            public void execute() {
+                final Purchase.PurchasesResult purchasesResult = billingClient.queryPurchases(SkuType.SUBS);
+                final int responseCode = purchasesResult.getResponseCode();
+
+                if (responseCode == BillingResponse.OK) {
+                    result.success(getIdentifiers(purchasesResult.getPurchasesList()));
+                } else {
+                    result.error("ERROR", "Failed to query subscriptions with error " + responseCode, null);
+                }
+            }
+
+            @Override
+            public void failed() {
+                result.error("UNAVAILABLE", "Billing service is unavailable!", null);
+            }
+        });
+    }
+
+
+
 
     /*
     private void fetchPurchases(final Result result) {

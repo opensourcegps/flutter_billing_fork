@@ -97,6 +97,7 @@ class Billing {
 
   bool _purchasesFetched = false;
   bool _purchasesFetchedFull = false;
+  bool _subscribtionsFetched = false;
   bool _subscribtionsFetchedFull = false;
 
 
@@ -221,6 +222,23 @@ class Billing {
     });
   }
 
+
+  Future<Set<Object>> getPurchasedSubscriptions() {
+    if (_subscribtionsFetched) {
+      return new Future.value(new Set.from(_subscribedProductsFull));
+    }
+    return synchronized(this, () async {
+      try {
+        final List purchases = await _channel.invokeMethod('fetchPurchasedSubscriptions');
+        _subscribedProducts.addAll(purchases.cast());
+        _subscribtionsFetched = true;
+        return _subscribedProducts;
+      } catch (e) {
+        if (_onError != null) _onError(e);
+        return new Set.identity();
+      }
+    });
+  }
 
 
   Future<Set<Object>> getSubscriptionsFull() {
