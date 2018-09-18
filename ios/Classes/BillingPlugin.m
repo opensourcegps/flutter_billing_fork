@@ -75,7 +75,14 @@
          } else {
              result([FlutterError errorWithCode:@"ERROR" message:@"Could not fetch subscriptions, identifiers were nil!" details:nil]);
          }
-      }
+       } else if ([@"subscribe" isEqualToString:call.method]) {
+          NSString* identifier = (NSString*)call.arguments[@"identifier"];
+            if (identifier != nil) {
+                [self subscribe:identifier result: result];
+            } else {
+                result([FlutterError errorWithCode:@"ERROR" message:@"Could not subscribe, identifier was nil!" details:nil]);
+            }
+        }
       else {
         result(FlutterMethodNotImplemented);
     }
@@ -185,6 +192,29 @@
         [[SKPaymentQueue defaultQueue] addPayment:payment];
     } else {
         result([FlutterError errorWithCode:@"ERROR" message:@"Failed to make a payment!" details:nil]);
+    }
+}
+
+
+- (void)subscribe:(NSString*) identifier result:(FlutterResult)result {
+    if (products == nil || [products count] <= 0) {
+        result([FlutterError errorWithCode:@"ERROR" message:@"Failed to subscribe!" details: @"products were nil or empty."]);
+    }
+
+    SKProduct* product;
+    for (SKProduct* p in products) {
+        if([p.productIdentifier isEqualToString:identifier]) {
+            product = p;
+            break;
+        }
+    }
+
+    if (product != nil) {
+        SKPayment* payment = [SKPayment paymentWithProduct:product];
+        [requestedPayments setObject:result forKey:payment];
+        [[SKPaymentQueue defaultQueue] addPayment:payment];
+    } else {
+        result([FlutterError errorWithCode:@"ERROR" message:@"Failed to subscribe!" details: [NSString stringWithFormat: @"product %@ was nil.", identifier]]);
     }
 }
 
