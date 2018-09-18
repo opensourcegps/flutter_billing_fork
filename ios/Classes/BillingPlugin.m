@@ -41,14 +41,14 @@
 
 - (instancetype)init {
     self = [super init];
-    
+
     self.fetchPurchases = [[NSMutableArray alloc] init];
     self.fetchProducts = [[NSMutableDictionary alloc] init];
     self.fetchSubscriptions = [[NSMutableDictionary alloc] init];
     self.requestedPayments = [[NSMutableDictionary alloc] init];
     self.products = [[NSArray alloc] init];
     self.purchases = [[NSMutableSet alloc] init];
-    
+
     return self;
 }
 
@@ -60,46 +60,58 @@
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
     if ([@"fetchPurchases" isEqualToString:call.method]) {
         [self fetchPurchases:result];
-    } else if ([@"fetchPurchasesFull" isEqualToString:call.method]) {
+    } else if ([@"getReceipt" isEqualToString:call.method]) {
+              [self getReceipt:result];
+    }else if ([@"fetchPurchasesFull" isEqualToString:call.method]) {
         [self fetchPurchasesFull:result];
     } else if ([@"purchase" isEqualToString:call.method]) {
         NSString* identifier = (NSString*)call.arguments[@"identifier"];
         if (identifier != nil) {
             [self purchase:identifier result:result];
         } else {
-            result([FlutterError errorWithCode:@"ERROR" message:@"Invalid or missing arguments!" details:nil]);
+            result([FlutterError errorWithCode:@"ERROR" message:@"Could not purchase, identifier was nil!" details:nil]);
         }
     } else if ([@"fetchProducts" isEqualToString:call.method]) {
         NSArray<NSString*>* identifiers = (NSArray<NSString*>*)call.arguments[@"identifiers"];
         if (identifiers != nil) {
             [self fetchProducts:identifiers result:result];
         } else {
-            result([FlutterError errorWithCode:@"ERROR" message:@"Invalid or missing arguments!" details:nil]);
+            result([FlutterError errorWithCode:@"ERROR" message:@"Could not fetch products, identifiers were nil!" details:nil]);
         }
     } else if ([@"fetchSubscriptions" isEqualToString:call.method]) {
         NSArray<NSString*>* identifiers = (NSArray<NSString*>*)call.arguments[@"identifiers"];
         if (identifiers != nil) {
             [self fetchProducts:identifiers result:result];
         } else {
-            result([FlutterError errorWithCode:@"ERROR" message:@"Invalid or missing arguments!" details:nil]);
+            result([FlutterError errorWithCode:@"ERROR" message:@"Could not fetch subscriptions, identifiers were nil!" details:nil]);
         }
     } else if ([@"fetchSubscriptionsFull" isEqualToString:call.method]) {
         NSArray<NSString*>* identifiers = (NSArray<NSString*>*)call.arguments[@"identifiers"];
         if (identifiers != nil) {
             [self fetchProducts:identifiers result:result];
         } else {
-            result([FlutterError errorWithCode:@"ERROR" message:@"Invalid or missing arguments!" details:nil]);
+            result([FlutterError errorWithCode:@"ERROR" message:@"Could not fetch subscriptions, identifiers were nil!" details:nil]);
         }
     } else if ([@"subscribe" isEqualToString:call.method]) {
         NSString* identifier = (NSString*)call.arguments[@"identifier"];
         if (identifier != nil) {
             [self subscribe:identifier result: result];
         } else {
-            result([FlutterError errorWithCode:@"ERROR" message:@"Invalid or missing arguments!" details:nil]);
+            result([FlutterError errorWithCode:@"ERROR" message:@"Could not subscribe, identifier was nil!" details:nil]);
         }
     } else {
         result(FlutterMethodNotImplemented);
     }
+}
+
+- (void)getReceipt:(FlutterResult)result {
+
+    NSData *dataReceipt = [NSData dataWithContentsOfURL:[[NSBundle mainBundle] appStoreReceiptURL]];
+
+    if (!dataReceipt)
+        result([FlutterError errorWithCode:@"ERROR" message:@"No local receipt" details:nil]);
+    else
+        result([dataReceipt base64EncodedStringWithOptions:0]);
 }
 
 - (void)fetchPurchases:(FlutterResult)result {
@@ -146,7 +158,7 @@
 
 - (void)purchased:(NSArray<SKPaymentTransaction*>*)transactions {
     NSMutableArray<FlutterResult>* results = [[NSMutableArray alloc] init];
-    
+
     [transactions enumerateObjectsUsingBlock:^(SKPaymentTransaction* transaction, NSUInteger idx, BOOL* stop) {
         [self->purchases addObject:transaction.payment.productIdentifier];
         FlutterResult result = [self->requestedPayments objectForKey:transaction.payment];
@@ -203,6 +215,10 @@
 }
 
 - (void)subscribe:(NSString*) identifier result:(FlutterResult)result {
+    if (products == nil || [products count] <= 0) {
+        result([FlutterError errorWithCode:@"ERROR" message:@"Failed to subscribe!" details: @"products were nil or empty."]);
+    }
+
     SKProduct* product;
     for (SKProduct* p in products) {
         if([p.productIdentifier isEqualToString:identifier]) {
@@ -216,16 +232,16 @@
         [requestedPayments setObject:result forKey:payment];
         [[SKPaymentQueue defaultQueue] addPayment:payment];
     } else {
-        result([FlutterError errorWithCode:@"ERROR" message:@"Failed to subscribe!" details:nil]);
+        result([FlutterError errorWithCode:@"ERROR" message:@"Failed to subscribe!" details: [NSString stringWithFormat: @"product %@ was nil.", identifier]]);
     }
 }
 
 - (void)fetchProducts:(NSArray<NSString*>*)identifiers result:(FlutterResult)result {
     SKProductsRequest* request = [[SKProductsRequest alloc] initWithProductIdentifiers:[NSSet setWithArray:identifiers]];
     [request setDelegate:self];
-    
+
     [fetchProducts setObject:result forKey:[NSValue valueWithNonretainedObject:request]];
-    
+
     [request start];
 }
 
@@ -261,16 +277,16 @@
     FlutterResult result = [fetchProducts objectForKey:key];
     if (result == nil) return;
     [fetchProducts removeObjectForKey:key];
-    
+
     NSNumberFormatter* currencyFormatter = [[NSNumberFormatter alloc] init];
     [currencyFormatter setNumberStyle:NSNumberFormatterCurrencyStyle];
-    
+
     products = [response products];
-    
+
     NSMutableArray<NSDictionary*>* allValues = [[NSMutableArray alloc] init];
     [[response products] enumerateObjectsUsingBlock:^(SKProduct* product, NSUInteger idx, BOOL* stop) {
         [currencyFormatter setLocale:product.priceLocale];
-        
+
         if (product.productIdentifier == nil ||
             product.localizedTitle == nil ||
             product.localizedDescription == nil ||

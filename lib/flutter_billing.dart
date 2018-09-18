@@ -3,11 +3,11 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:synchronized/synchronized.dart';
 
-enum BillingProductType
-{
-    INAPP,
-    SUBS
-}
+//enum BillingProductType
+//{
+//    INAPP,
+//    SUBS
+//}
 
 /// A single product that can be purchased by a user in app.
 class BillingProduct {
@@ -46,7 +46,7 @@ class BillingProduct {
   final int amount;
 
   // Type of product. e.g. SUBS or INAPP
-  final BillingProductType type;
+  final String type;
 
 
   @override
@@ -80,7 +80,7 @@ class BillingProduct {
 }
 
 /// A billing error callback to be called when any of billing operations fail.
-typedef void BillingErrorCallback(Exception e);
+typedef void BillingErrorCallback(e);
 
 /// Billing plugin to enable communication with billing API in iOS and Android.
 class Billing {
@@ -97,7 +97,7 @@ class Billing {
 
   bool _purchasesFetched = false;
   bool _purchasesFetchedFull = false;
-  bool _subscribtionsFetchedFull = false;
+  bool _subscriptionsFetchedFull = false;
 
 
   /// Products details of supplied product identifiers.
@@ -127,44 +127,6 @@ class Billing {
                 amount: product['amount'],
                 type: product['type'],
               ),
-        );
-        _cachedProducts.addAll(products);
-        return products.values.toList();
-      } catch (e) {
-        if (_onError != null) _onError(e);
-        return <BillingProduct>[];
-      }
-    });
-  }
-
-
-  /// Products details of supplied product identifiers.
-  ///
-  /// Returns a list of products available to the app for subscription.
-  ///
-  /// Note the behavior may differ from iOS and Android. Android most likely to throw in a case
-  /// of error, while iOS would return a list of only products that are available. In a case of
-  /// error, it would return simply empty list.
-  Future<List<BillingProduct>> getSubscriptions(List<String> identifiers) {
-    assert(identifiers != null);
-    if (_cachedProducts.keys.toSet().containsAll(identifiers)) {
-      return new Future.value(
-          identifiers.map((identifier) => _cachedProducts[identifier]).toList());
-    }
-    return synchronized(this, () async {
-      try {
-        final Map<String, BillingProduct> products = new Map.fromIterable(
-          await _channel.invokeMethod('fetchSubscriptions', {'identifiers': identifiers}),
-          key: (product) => product['identifier'],
-          value: (product) => new BillingProduct(
-            identifier: product['identifier'],
-            price: product['price'],
-            title: product['title'],
-            description: product['description'],
-            currency: product['currency'],
-            amount: product['amount'],
-            type: product['type'],
-          ),
         );
         _cachedProducts.addAll(products);
         return products.values.toList();
@@ -221,10 +183,53 @@ class Billing {
     });
   }
 
+  /// Grab in app receipt for iOS.
+  ///
+  /// Returns a String containing the receipt, validity should be check on (your) server side.
+  Future<String> getReceipt() async {
+    final String receipt = await _channel.invokeMethod('getReceipt');
+    return receipt;
+  }
 
-
+  /// Products details of supplied product identifiers.
+  ///
+  /// Returns a list of products available to the app for subscription.
+  ///
+  /// Note the behavior may differ from iOS and Android. Android most likely to throw in a case
+  /// of error, while iOS would return a list of only products that are available. In a case of
+  /// error, it would return simply empty list.
+  Future<List<BillingProduct>> getSubscriptions(List<String> identifiers) {
+    assert(identifiers != null);
+    if (_cachedProducts.keys.toSet().containsAll(identifiers)) {
+      return new Future.value(
+          identifiers.map((identifier) => _cachedProducts[identifier]).toList());
+    }
+    return synchronized(this, () async {
+      try {
+        final Map<String, BillingProduct> products = new Map.fromIterable(
+          await _channel.invokeMethod('fetchSubscriptions', {'identifiers': identifiers}),
+          key: (product) => product['identifier'],
+          value: (product) => new BillingProduct(
+            identifier: product['identifier'],
+            price: product['price'],
+            title: product['title'],
+            description: product['description'],
+            currency: product['currency'],
+            amount: product['amount'],
+            type: product['type'],
+          ),
+        );
+        _cachedProducts.addAll(products);
+        return products.values.toList();
+      } catch (e) {
+        if (_onError != null) _onError(e);
+        return <BillingProduct>[];
+      }
+    });
+  }
+  
   Future<Set<Object>> getSubscriptionsFull() {
-    if (_subscribtionsFetchedFull) {
+    if (_subscriptionsFetchedFull) {
       return new Future.value(new Set.from(_subscribedProductsFull));
     }
     return synchronized(this, () async {
@@ -239,16 +244,6 @@ class Billing {
       }
     });
   }
-
-
-  /// Grab in app receipt for iOS.
-  ///
-  /// Returns a String containing the receipt, validity should be check on (your) server side.
-  Future<String> getReceipt() async {
-    final String receipt = await _channel.invokeMethod('getReceipt');
-    return receipt;
-  }
-
 
   /// Validate if a product is purchased.
   ///
@@ -279,8 +274,6 @@ class Billing {
       }
     });
   }
-  
-  
   
   /// Subscribe to a product.
   ///

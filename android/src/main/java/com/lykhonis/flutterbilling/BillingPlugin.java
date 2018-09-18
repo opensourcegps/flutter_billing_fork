@@ -44,10 +44,10 @@ public final class BillingPlugin implements MethodCallHandler {
     private final Map<String, Result> pendingPurchaseRequests;
     private final Deque<Request> pendingRequests;
     private BillingServiceStatus billingServiceStatus;
-
-    public static void registerWith(Registrar registrar) {
-        final MethodChannel channel = new MethodChannel(registrar.messenger(), "flutter_billing");
-        channel.setMethodCallHandler(new BillingPlugin(registrar.activity()));
+    
+    interface Request {
+        void execute();
+        void failed();
     }
 
     private BillingPlugin(Activity activity) {
@@ -58,8 +58,8 @@ public final class BillingPlugin implements MethodCallHandler {
         billingServiceStatus = BillingServiceStatus.IDLE;
 
         billingClient = BillingClient.newBuilder(activity)
-                                     .setListener(new BillingListener())
-                                     .build();
+                .setListener(new BillingListener())
+                .build();
 
         final Application application = activity.getApplication();
 
@@ -95,7 +95,7 @@ public final class BillingPlugin implements MethodCallHandler {
             fetchPurchasesFull(result);
         } else if ("fetchSubscriptionsFull".equals(methodCall.method)) {
             fetchSubscriptionsFull(result);
-        }  else if ("purchase".equals(methodCall.method)) {
+        } else if ("purchase".equals(methodCall.method)) {
             purchase(methodCall.<String>argument("identifier"), result);
         } else if ("fetchProducts".equals(methodCall.method)) {
             fetchProducts(methodCall.<List<String>>argument("identifiers"), result);
@@ -106,6 +106,11 @@ public final class BillingPlugin implements MethodCallHandler {
         } else {
             result.notImplemented();
         }
+    }
+
+    public static void registerWith(Registrar registrar) {
+        final MethodChannel channel = new MethodChannel(registrar.messenger(), "flutter_billing");
+        channel.setMethodCallHandler(new BillingPlugin(registrar.activity()));
     }
 
     /* broken for normal products:
@@ -140,15 +145,24 @@ public final class BillingPlugin implements MethodCallHandler {
     }
      */
 
+    private void executeServiceRequest(Request request) {
+        if (billingServiceStatus == BillingServiceStatus.READY) {
+            request.execute();
+        } else {
+            pendingRequests.add(request);
+            startServiceConnection();
+        }
+    }
+    
     private void fetchProducts(final List<String> identifiers, final Result result) {
         executeServiceRequest(new Request() {
             @Override
             public void execute() {
                 billingClient.querySkuDetailsAsync(
                         SkuDetailsParams.newBuilder()
-                                        .setSkusList(identifiers)
-                                        .setType(SkuType.INAPP)
-                                        .build(),
+                                .setSkusList(identifiers)
+                                .setType(SkuType.INAPP)
+                                .build(),
                         new SkuDetailsResponseListener() {
                             @Override
                             public void onSkuDetailsResponse(int responseCode, List<SkuDetails> skuDetailsList) {
@@ -163,7 +177,7 @@ public final class BillingPlugin implements MethodCallHandler {
                                         product.put("description", details.getDescription());
                                         product.put("currency", details.getPriceCurrencyCode());
                                         product.put("amount", details.getPriceAmountMicros() / 10_000L);
-                                      //  product.put("type", details.getType());  //breaks stuff
+                                        //  product.put("type", details.getType());  //breaks stuff
                                         products.add(product);
                                         try {
                                             System.out.println(details.getType());
@@ -178,111 +192,6 @@ public final class BillingPlugin implements MethodCallHandler {
                                 }
                             }
                         });
-            }
-
-            @Override
-            public void failed() {
-                result.error("UNAVAILABLE", "Billing service is unavailable!", null);
-            }
-        });
-    }
-
-    private List<Map<String, Object>> getProductsFromSkuDetails(List<SkuDetails> skuDetailsList) {
-        final List<Map<String, Object>> products = new ArrayList<>();
-
-        for (SkuDetails details : skuDetailsList) {
-            final Map<String, Object> product = new HashMap<>();
-            product.put("identifier", details.getSku());
-            product.put("price", details.getPrice());
-            product.put("title", details.getTitle());
-            product.put("description", details.getDescription());
-            product.put("currency", details.getPriceCurrencyCode());
-            product.put("amount", details.getPriceAmountMicros() / 10_000L);
-            product.put("type", details.getType());
-            products.add(product);
-        }
-
-        return products;
-    }
-
-
-    private void purchase(final String identifier, final Result result) {
-        executeServiceRequest(new Request() {
-            @Override
-            public void execute() {
-                final int responseCode = billingClient.launchBillingFlow(
-                        activity,
-                        BillingFlowParams.newBuilder()
-                                         .setSku(identifier)
-                                         .setType(SkuType.INAPP)
-                                         .build());
-
-                if (responseCode == BillingResponse.OK) {
-                    pendingPurchaseRequests.put(identifier, result);
-                } else {
-                    result.error("ERROR", "Failed to launch billing flow to purchase an item with error " + responseCode, null);
-                }
-            }
-
-            @Override
-            public void failed() {
-                result.error("UNAVAILABLE", "Billing service is unavailable!", null);
-            }
-        });
-    }
-
-
-    private void subscribe(final String identifier, final Result result) {
-        executeServiceRequest(new Request() {
-            @Override
-            public void execute() {
-                final int subscriptionSupportResponse = billingClient.isFeatureSupported(FeatureType.SUBSCRIPTIONS);
-                if (BillingResponse.OK != subscriptionSupportResponse) {
-                    result.error("NOT SUPPORTED", "Subscriptions are not supported.", null);
-                    return;
-                }
-
-                final int responseCode = billingClient.launchBillingFlow(
-                        activity,
-                        BillingFlowParams.newBuilder()
-                                .setSku(identifier)
-                                .setType(SkuType.SUBS)
-                                .build());
-
-                if (responseCode == BillingResponse.OK) {
-                    pendingPurchaseRequests.put(identifier, result);
-                } else {
-                    result.error("ERROR", "Failed to subscribe with error " + responseCode, null);
-                }
-            }
-
-            @Override
-            public void failed() {
-                result.error("UNAVAILABLE", "Billing service is unavailable!", null);
-            }
-        });
-    }
-
-
-    private void fetchPurchases(final Result result) {
-        executeServiceRequest(new Request() {
-            @Override
-            public void execute() {
-                final Purchase.PurchasesResult productResult = billingClient.queryPurchases(SkuType.INAPP);
-                final int productResponseCode = productResult.getResponseCode();
-
-                final Purchase.PurchasesResult subscriptionResult = billingClient.queryPurchases(SkuType.SUBS);
-                final int subscriptionResponseCode = subscriptionResult.getResponseCode();
-
-                if (productResponseCode == BillingResponse.OK && subscriptionResponseCode == BillingResponse.OK) {
-                    List<String> identifiers = getIdentifiers(productResult.getPurchasesList());
-                    identifiers.addAll(getIdentifiers(subscriptionResult.getPurchasesList()));
-
-                    result.success(identifiers);
-                } else {
-                    result.error("ERROR", "Failed to query purchases with product error " + productResponseCode +
-                            " or subscription error " + subscriptionResponseCode, null);
-                }
             }
 
             @Override
@@ -315,6 +224,54 @@ public final class BillingPlugin implements MethodCallHandler {
     }
     */
 
+    private void fetchPurchases(final Result result) {
+        executeServiceRequest(new Request() {
+            @Override
+            public void execute() {
+                final Purchase.PurchasesResult productResult = billingClient.queryPurchases(SkuType.INAPP);
+                final int productResponseCode = productResult.getResponseCode();
+
+                final Purchase.PurchasesResult subscriptionResult = billingClient.queryPurchases(SkuType.SUBS);
+                final int subscriptionResponseCode = subscriptionResult.getResponseCode();
+
+                if (productResponseCode == BillingResponse.OK && subscriptionResponseCode == BillingResponse.OK) {
+                    List<String> identifiers = getIdentifiers(productResult.getPurchasesList());
+                    identifiers.addAll(getIdentifiers(subscriptionResult.getPurchasesList()));
+
+                    result.success(identifiers);
+                } else {
+                    result.error("ERROR", "Failed to query purchases with product error " + productResponseCode +
+                            " or subscription error " + subscriptionResponseCode, null);
+                }
+            }
+
+            @Override
+            public void failed() {
+                result.error("UNAVAILABLE", "Billing service is unavailable!", null);
+            }
+        });
+    }
+
+    private void fetchPurchasesFull(final Result result) {
+        executeServiceRequest(new Request() {
+            @Override
+            public void execute() {
+                final Purchase.PurchasesResult purchasesResult = billingClient.queryPurchases(SkuType.INAPP);
+                final int responseCode = purchasesResult.getResponseCode();
+
+                if (responseCode == BillingResponse.OK) {
+                    result.success(getIdentifiersFull(purchasesResult.getPurchasesList()));
+                } else {
+                    result.error("ERROR", "Failed to query purchases with error " + responseCode, null);
+                }
+            }
+
+            @Override
+            public void failed() {
+                result.error("UNAVAILABLE", "Billing service is unavailable!", null);
+            }
+        });
+    }
 
     private void fetchSubscriptions(final List<String> identifiers, final Result result) {
         executeServiceRequest(new Request() {
@@ -348,8 +305,6 @@ public final class BillingPlugin implements MethodCallHandler {
                                     }
 
 
-
-
                                     result.success(products);
                                 } else {
                                     result.error("ERROR", "Failed to fetch Subscriptions!", null);
@@ -364,28 +319,7 @@ public final class BillingPlugin implements MethodCallHandler {
             }
         });
     }
-
-    private void fetchPurchasesFull(final Result result) {
-        executeServiceRequest(new Request() {
-            @Override
-            public void execute() {
-                final Purchase.PurchasesResult purchasesResult = billingClient.queryPurchases(SkuType.INAPP);
-                final int responseCode = purchasesResult.getResponseCode();
-
-                if (responseCode == BillingResponse.OK) {
-                    result.success(getIdentifiersFull(purchasesResult.getPurchasesList()));
-                } else {
-                    result.error("ERROR", "Failed to query purchases with error " + responseCode, null);
-                }
-            }
-
-            @Override
-            public void failed() {
-                result.error("UNAVAILABLE", "Billing service is unavailable!", null);
-            }
-        });
-    }
-
+    
     private void fetchSubscriptionsFull(final Result result) {
         executeServiceRequest(new Request() {
             @Override
@@ -405,6 +339,18 @@ public final class BillingPlugin implements MethodCallHandler {
                 result.error("UNAVAILABLE", "Billing service is unavailable!", null);
             }
         });
+    }
+
+    private List<String> getIdentifiers(List<Purchase> purchases) {
+        if (purchases == null) return Collections.emptyList();
+
+        final List<String> identifiers = new ArrayList<>(purchases.size());
+
+        for (Purchase purchase : purchases) {
+            identifiers.add(purchase.getSku());
+        }
+
+        return identifiers;
     }
 
     private List<Object> getIdentifiersFull(List<Purchase> purchases) {
@@ -432,32 +378,52 @@ public final class BillingPlugin implements MethodCallHandler {
             identifiers.add(purchase_single);
 
 
-
         }
 
         return identifiers;
     }
 
+    private List<Map<String, Object>> getProductsFromSkuDetails(List<SkuDetails> skuDetailsList) {
+        final List<Map<String, Object>> products = new ArrayList<>();
 
-    private List<String> getIdentifiers(List<Purchase> purchases) {
-        if (purchases == null) return Collections.emptyList();
-
-        final List<String> identifiers = new ArrayList<>(purchases.size());
-
-        for (Purchase purchase : purchases) {
-            identifiers.add(purchase.getSku());
+        for (SkuDetails details : skuDetailsList) {
+            final Map<String, Object> product = new HashMap<>();
+            product.put("identifier", details.getSku());
+            product.put("price", details.getPrice());
+            product.put("title", details.getTitle());
+            product.put("description", details.getDescription());
+            product.put("currency", details.getPriceCurrencyCode());
+            product.put("amount", details.getPriceAmountMicros() / 10_000L);
+            product.put("type", details.getType());
+            products.add(product);
         }
 
-        return identifiers;
+        return products;
     }
 
-    private void stopServiceConnection() {
-        if (billingClient.isReady()) {
-            Log.d(TAG, "Stopping billing service.");
+    private void purchase(final String identifier, final Result result) {
+        executeServiceRequest(new Request() {
+            @Override
+            public void execute() {
+                final int responseCode = billingClient.launchBillingFlow(
+                        activity,
+                        BillingFlowParams.newBuilder()
+                                .setSku(identifier)
+                                .setType(SkuType.INAPP)
+                                .build());
 
-            billingClient.endConnection();
-            billingServiceStatus = BillingServiceStatus.IDLE;
-        }
+                if (responseCode == BillingResponse.OK) {
+                    pendingPurchaseRequests.put(identifier, result);
+                } else {
+                    result.error("ERROR", "Failed to launch billing flow to purchase an item with error " + responseCode, null);
+                }
+            }
+
+            @Override
+            public void failed() {
+                result.error("UNAVAILABLE", "Billing service is unavailable!", null);
+            }
+        });
     }
 
     private void startServiceConnection() {
@@ -489,13 +455,44 @@ public final class BillingPlugin implements MethodCallHandler {
         });
     }
 
-    private void executeServiceRequest(Request request) {
-        if (billingServiceStatus == BillingServiceStatus.READY) {
-            request.execute();
-        } else {
-            pendingRequests.add(request);
-            startServiceConnection();
+    private void stopServiceConnection() {
+        if (billingClient.isReady()) {
+            Log.d(TAG, "Stopping billing service.");
+
+            billingClient.endConnection();
+            billingServiceStatus = BillingServiceStatus.IDLE;
         }
+    }
+    
+    private void subscribe(final String identifier, final Result result) {
+        executeServiceRequest(new Request() {
+            @Override
+            public void execute() {
+                final int subscriptionSupportResponse = billingClient.isFeatureSupported(FeatureType.SUBSCRIPTIONS);
+                if (BillingResponse.OK != subscriptionSupportResponse) {
+                    result.error("NOT SUPPORTED", "Subscriptions are not supported.", null);
+                    return;
+                }
+
+                final int responseCode = billingClient.launchBillingFlow(
+                        activity,
+                        BillingFlowParams.newBuilder()
+                                .setSku(identifier)
+                                .setType(SkuType.SUBS)
+                                .build());
+
+                if (responseCode == BillingResponse.OK) {
+                    pendingPurchaseRequests.put(identifier, result);
+                } else {
+                    result.error("ERROR", "Failed to subscribe with error " + responseCode, null);
+                }
+            }
+
+            @Override
+            public void failed() {
+                result.error("UNAVAILABLE", "Billing service is unavailable!", null);
+            }
+        });
     }
 
     final class BillingListener implements PurchasesUpdatedListener {
@@ -516,12 +513,6 @@ public final class BillingPlugin implements MethodCallHandler {
                 pendingPurchaseRequests.clear();
             }
         }
-    }
-
-    interface Request {
-        void execute();
-
-        void failed();
     }
 
     static class LifecycleCallback implements Application.ActivityLifecycleCallbacks {
